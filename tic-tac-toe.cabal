@@ -1,10 +1,10 @@
 cabal-version: 1.12
 
--- This file has been generated from package.yaml by hpack version 0.31.0.
+-- This file has been generated from package.yaml by hpack version 0.31.1.
 --
 -- see: https://github.com/sol/hpack
 --
--- hash: 4a6a8c2d919ba33ad5549ea93a2296282986fe58c842d4b2601556500fc87b04
+-- hash: daa1e7802ac78bbf5f581d100857a75e5471a631576f91f5b49506a52060b7a4
 
 name:           tic-tac-toe
 version:        0.1.0.0
@@ -26,6 +26,8 @@ source-repository head
   location: https://github.com/githubuser/tic-tac-toe
 
 library
+  exposed-modules:
+      ActorCritic
   other-modules:
       Paths_tic_tac_toe
   hs-source-dirs:
