@@ -212,25 +212,83 @@ module Main where
     possibleMoves :: Board -> Moves
     possibleMoves b = foldl possibleRowMoves [] (zip [0..2] b)
 
-    type StateValue = (Board, Float)
-    type EligibilityTrace = [StateValue]
-    type SVF = [StateValue]
     type State = Board
+    data SEV = SEV { state :: State
+                   , eligibility :: Float
+                   , value :: Float
+                   } deriving (Show)
     type Reward = Float
 
-    initStateValues :: Player -> [StateValue]
-    initStateValues p = zip ss (replicate (length ss) 0)
-        where ss = aiNonTerminalStates p
+    γ :: Float
+    γ = 0.9
 
-    findValue :: State -> SVF -> Maybe Float
-    findValue b svf = fmap snd (find (\t -> fst t == b) svf)
+    α :: Float
+    α = 0.9
 
-    eligibility :: EligibilityTrace -> State -> Float -> Maybe Float
-    eligibility et s a = findValue s et 
+    λ :: Float
+    λ = 0.9
 
-    evaluate :: SVF -> SVF -> State -> State -> Reward -> SVF
-    evaluate oldSvf svf oldS s r  = 
+    initSevs :: Player -> [SEV]
+    initSevs p = map (\s -> SEV {state=s, eligibility=0.0, value=0.0}) (aiNonTerminalStates p)
+
+    findSev :: [SEV] -> (State, State) -> Maybe (SEV, SEV)
+    findSev sevs (s, s')= (sevs'!!0, sevs'!!1)
+        where sevs' = filter (\sev -> state sev == s || state sev == s') sevs
+        
+    -- True online TD(λ) with eligibility dutch-traces
+    criticEvaluate :: [SEV] -> State -> State -> Reward -> Float -> Maybe ([SEV], Float)
+    criticEvaluate sevs s s' r oldv = fmap (\err -> (map update sevs, err) merr
         where 
-            d = findValue oldS svf - findValue oldS oldSvf
-            err = r + g + (findValue s svf - findValue oldS svf)
+            mt = findSev sevs (s, s')
+            merr = fmap (\t -> r + γ*(value . snd t) - (value . fst t)) mt
+            mΔ = fmap (\t -> value . fst t - oldv) mt
+            oldv' = fmap (\t -> value . snd t) mt
+            me = fmap (\t -> (1-α)*(eligibility . fst t) + 1) mt
+            maybeUpdate sev =
+                if state sev == s then do
+                    err <- merr
+                    Δ <- mΔ
+                    e <- me
+                    return (s, γ*λ*e, value sev + α*(err + Δ)*e - α*Δ)
+                else
+                    Just (state sev, γ*λ*(eligibility sev), value sev + α*(err + Δ)*(eligibility sev))
+            update sev = case maybeUpdate sev of
+                Just sev' = sev'
+                Nothing = sev
 
+    
+    type Action = Square
+    data ActorState = ActorState { state :: State
+                       , action :: Action
+                       , probability :: Float
+                       , preference :: Float
+                       , eligibility :: Float
+                       , value :: Float
+                       }
+    
+    initActorStates :: Player -> [ActorState]
+    initActorStates p = map (\s -> map (\a -> ActorState {state=s, action=a, preference=0.0, eligibility=0.0, value=0.0}) (possibleMoves s)) (aiNonTerminalStates p)
+
+    findActorStates :: [ActorState] -> ((State, Action), (State, Action)) -> Maybe (ActorState, ActorState)
+    findActorStates ass ((s,a), (s',a'))= (ass'!!0, ass'!!1)
+        where ass' = filter (\as -> (state as == s && (action as == a)) || (state as == s' && (action as == a'))) ass
+
+    -- True online Sarsa(λ), with eligibility traces and gradient ascent policy distribution (Gibbs distribution)
+    actorControl :: [ActorState] -> (State, Action) -> (State, Action) -> Reward -> Float -> Float -> [ActorState]
+    actorControl ass s oldV cErr = 
+        where
+            mt = findActorStates ass ((s,a), (s',a'))
+            merr = fmap (\t -> r + γ*(value . snd t) - (value . fst t)) mt
+            mΔ = fmap (\t -> value . fst t - oldv) mt
+            me = fmap (\t -> (eligibility . fst t) + 1 - (probability . fst t)) mt
+            maybeUpdate as =
+                if state as == s then do
+                    err <- merr
+                    Δ <- mΔ
+                    e <- me
+                    return (s, a, ???, preference as + λ*cErr*(1 - probability as), γ*λ*e, value as + α*(err + Δ)*e - α*Δ)
+                else
+                    Just (state as, action as, ???, preference as, γ*λ*(eligibility as), value as + α*(err + Δ)*(eligibility as))
+            update as = case maybeUpdate as of
+                Just as' = as'
+                Nothing = as
