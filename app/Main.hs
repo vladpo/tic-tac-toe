@@ -214,81 +214,101 @@ module Main where
 
     type State = Board
     data SEV = SEV { state :: State
-                   , eligibility :: Float
-                   , value :: Float
+                   , eligibility :: Double
+                   , value :: Double
                    } deriving (Show)
-    type Reward = Float
+    type Reward = Double
 
-    γ :: Float
+    γ :: Double
     γ = 0.9
 
-    α :: Float
+    α :: Double
     α = 0.9
 
-    λ :: Float
+    λ :: Double
     λ = 0.9
 
-    initSevs :: Player -> [SEV]
-    initSevs p = map (\s -> SEV {state=s, eligibility=0.0, value=0.0}) (aiNonTerminalStates p)
+    initSev :: State -> SEV
+    initSev s = SEV {state=s, eligibility=0.0, value=0.0}
 
-    findSev :: [SEV] -> (State, State) -> Maybe (SEV, SEV)
-    findSev sevs (s, s')= (sevs'!!0, sevs'!!1)
-        where sevs' = filter (\sev -> state sev == s || state sev == s') sevs
+    initSevs :: Player -> [SEV]
+    initSevs p = map initSev (aiNonTerminalStates p)
+
+    nowNextSev :: [SEV] -> State -> State -> (SEV, SEV)
+    nowNextSev sevs s s'= foldl(\nowNext -> \sev -> 
+                                                    if (state sev == s) then (sev, snd nowNext)
+                                                    else if (state sev == s') then (fst nowNext, sev)
+                                                    else nowNext
+                               ) (initSev s, initSev s') sevs
         
     -- True online TD(λ) with eligibility dutch-traces
-    criticEvaluate :: [SEV] -> State -> State -> Reward -> Float -> Maybe ([SEV], Float)
-    criticEvaluate sevs s s' r oldv = fmap (\err -> (map update sevs, err) merr
+    criticEvaluate :: [SEV] -> State -> State -> Reward -> Double -> Maybe ([SEV], Double)
+    criticEvaluate sevs s s' r oldv = (map update sevs, err)
         where 
-            mt = findSev sevs (s, s')
-            merr = fmap (\t -> r + γ*(value . snd t) - (value . fst t)) mt
-            mΔ = fmap (\t -> value . fst t - oldv) mt
-            oldv' = fmap (\t -> value . snd t) mt
-            me = fmap (\t -> (1-α)*(eligibility . fst t) + 1) mt
-            maybeUpdate sev =
-                if state sev == s then do
-                    err <- merr
-                    Δ <- mΔ
-                    e <- me
-                    return (s, γ*λ*e, value sev + α*(err + Δ)*e - α*Δ)
-                else
-                    Just (state sev, γ*λ*(eligibility sev), value sev + α*(err + Δ)*(eligibility sev))
-            update sev = case maybeUpdate sev of
-                Just sev' = sev'
-                Nothing = sev
+            nowNext = nowNextSev sevs s s'
+            err = r + γ*(value . snd nowNext) - (value . fst nowNext)
+            Δ = value . fst nowNext - oldv
+            oldv' = value . snd nowNext
+            e = (1-α)*(eligibility . fst nowNext) + 1
+            update = \sev ->
+                            if state sev == s then
+                                SEV {state=s, eligibility=(γ*λ*e), value=(value sev + α*(err + Δ)*e - α*Δ)}
+                            else
+                                SEV {state=(state sev), eligibility=(γ*λ*(eligibility sev)), value=(value sev + α*(err + Δ)*(eligibility sev))}
 
     
     type Action = Square
     data ActorState = ActorState { state :: State
                        , action :: Action
-                       , probability :: Float
-                       , preference :: Float
-                       , eligibility :: Float
-                       , value :: Float
+                       , probability :: Double
+                       , preference :: Double
+                       , eligibility :: Double
+                       , value :: Double
                        }
+    data Result = Result { now :: ActorState
+                         , next :: ActorState
+                         , sum :: Double
+                         }
     
-    initActorStates :: Player -> [ActorState]
-    initActorStates p = map (\s -> map (\a -> ActorState {state=s, action=a, preference=0.0, eligibility=0.0, value=0.0}) (possibleMoves s)) (aiNonTerminalStates p)
+    initAS :: ActorState
+    initAS s a = ActorState {state=s, action=a, preference=0.0, eligibility=0.0, value=0.0}
 
-    findActorStates :: [ActorState] -> ((State, Action), (State, Action)) -> Maybe (ActorState, ActorState)
-    findActorStates ass ((s,a), (s',a'))= (ass'!!0, ass'!!1)
-        where ass' = filter (\as -> (state as == s && (action as == a)) || (state as == s' && (action as == a'))) ass
+    initASs :: Player -> [ActorState]
+    initASs p = map (\s -> map (\a -> initAS s a) (possibleMoves s)) (aiNonTerminalStates p)
 
-    -- True online Sarsa(λ), with eligibility traces and gradient ascent policy distribution (Gibbs distribution)
-    actorControl :: [ActorState] -> (State, Action) -> (State, Action) -> Reward -> Float -> Float -> [ActorState]
-    actorControl ass s oldV cErr = 
+    nowNextActorState :: [ActorState] -> ((State, Action), (State, Action)) -> Result
+    nowNextActorState ass ((s,a), (s',a'))= 
+        foldl (\result -> \as -> 
+                                if (state as == s && (action as == a)) then Result{now=as, next=(next result), sum=(sum result)}
+                                else if (state as == s' && (action as == a')) then Result{now=(now result), next=as, sum=(sum result + (preference as))}
+                                else Result{now=(now result), next=(next result), sum=(sum result + 2.71828**(preference as))}
+              ) (Result {now=(initAS s a), next=(initAS s' a'), sum=0.0}) ass
+
+    -- True online Sarsa(λ), with eligibility traces and with a policy using a gradient ascent distribution (Gibbs distribution)
+    actorControl :: [ActorState] -> (State, Action) -> Reward -> Double -> Double -> [ActorState]
+    actorControl ass (s,a) oldV cErr = 
         where
-            mt = findActorStates ass ((s,a), (s',a'))
-            merr = fmap (\t -> r + γ*(value . snd t) - (value . fst t)) mt
-            mΔ = fmap (\t -> value . fst t - oldv) mt
-            me = fmap (\t -> (eligibility . fst t) + 1 - (probability . fst t)) mt
-            maybeUpdate as =
-                if state as == s then do
-                    err <- merr
-                    Δ <- mΔ
-                    e <- me
-                    return (s, a, ???, preference as + λ*cErr*(1 - probability as), γ*λ*e, value as + α*(err + Δ)*e - α*Δ)
-                else
-                    Just (state as, action as, ???, preference as, γ*λ*(eligibility as), value as + α*(err + Δ)*(eligibility as))
-            update as = case maybeUpdate as of
-                Just as' = as'
-                Nothing = as
+            result = nowNextActorState ass ((s,a), (s',a'))
+            err = r + γ*(value . next result) - (value . now result))
+            Δ = value . now result - oldv
+            decayEligibility = \gl -> gl*(eligibility . now result) + 1 - (probability . now result))
+            E = decayEligibility 1.0
+            γλE = decayEligibility (γ*λ)
+            oldv' = value . next result
+            update = \as ->
+                            if state as == s then do
+                                ActorState { state=s
+                                           , action=a
+                                           , probability=(2.71828**(preference as + α*cErr*E)/(sum result))
+                                           , preference=(preference as + α*cErr*E)
+                                           , eligibility=γλE
+                                           , value=(value as + α*(err + Δ)*E - α*Δ)
+                                           }
+                            else
+                                ActorState { state=(state as)
+                                           , action=(action as)
+                                           , probability=???
+                                           , preference=(preference as)
+                                           , eligibility=(γ*λ*(eligibility as))
+                                           , value=(value as + α*(err + Δ)*(eligibility as))
+                                           }
