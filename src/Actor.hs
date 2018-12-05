@@ -16,10 +16,13 @@ module Actor where
     data Result = Result { _now :: ActorState
                          , _nowOthers :: [ActorState]
                          , _next :: ActorState
-                         , _sum :: Double
+                         , _nowSum :: Double
                          } deriving (Show)
     makeLenses ''Result
     
+    euler :: Double
+    euler = 2.71828
+
     initAS :: ActorState
     initAS s a = ActorState {_state=s, _action=a, _preference=0.0, _eligibility=0.0, _value=0.0}
 
@@ -32,10 +35,10 @@ module Actor where
                                 if (_state as == s && (_action as == a)) then 
                                     set now as result
                                 else if (_state as == s && (_action as /= a)) then
-                                    (over nowOthers (as:)) . (over sum (+ 2.71828**(_preference as)) result
+                                    (over nowOthers (as:)) . (over nowSum (+ euler**(_preference as)) result
                                 else if (_state as == s' && (_action as == a')) then 
                                     set next as result
-              ) (Result {_now=(initAS s a), _nowOthers=[], _next=(initAS s' a'), _sum=0.0}) ass
+              ) (Result {_now=(initAS s a), _nowOthers=[], _next=(initAS s' a'), _nowSum=0.0}) ass
 
     -- True online Sarsa(λ), with eligibility traces and with a policy using a gradient ascent distribution (Gibbs distribution)
     actorEvaluate :: [ActorState] -> (State, Action) -> (State, Action) -> Reward -> Double -> Double -> [ActorState]
@@ -49,10 +52,11 @@ module Actor where
             γλE = decayEligibility (γ*λ)
             oldv' = value . next result
             update = \as ->
-                            if state as == s then
+                if state as == s then
+                    
                                 ActorState { state=s
                                            , action=a
-                                           , probability=(2.71828**(preference as + α*cErr*E)/(sum result))
+                                           , probability=(euler**(preference as + α*cErr*E)/(sum result))
                                            , preference=(preference as + α*cErr*E)
                                            , eligibility=γλE
                                            , value=(value as + α*(err + Δ)*E - α*Δ)
