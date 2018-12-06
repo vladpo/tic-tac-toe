@@ -3,6 +3,10 @@ module Actor where
 
     import TicTacToe (playerStates, allReactionsByMove, allMoves)
     import Control.Lens
+    import Numeric.Probability.Random as NPRandom
+    import Numeric.Probability.Distribution as Dist
+    import qualified System.Random as Random
+    import System.Random (Random, )
 
     type Action = Square
     data ActorState = ActorState { _state :: State
@@ -30,23 +34,22 @@ module Actor where
     filterByState ass s = foldl (\t -> \as -> if (_state as == s) then (as:(fst t), (snd t + eulerPref as)) else t) ([], 0.0) ass
 
     -- True online Sarsa(λ), with eligibility traces and with a policy using a gradient ascent distribution (Gibbs distribution)
-    actorControl :: Player -> [ActorState] -> State -> Double -> Double -> [ActorState]
-    actorControl p ass s oldV cErr = 
+    actorControl :: Random.StdGen -> Player -> [ActorState] -> State -> Double -> Double -> [ActorState]
+    actorControl g p ass s oldV cErr = 
         where
-            result = filterByState ass s
-            
-            err = r + γ*(_value . next result) - (_value . now result))
-            Δ = _value . now result - oldv
-            decayEligibility = \gl -> gl*(_eligibility . now result) + 1.0 - (_probability . now result))
+            as = actorPolicy g
+            err = r + γ*(_value . next nowActorStatesWithSum) - (_value as))
+            Δ = _value . now nowActorStatesWithSum - oldv
+            decayEligibility = \gl -> gl*(_eligibility . now nowActorStatesWithSum) + 1.0 - (_probability . now nowActorStatesWithSum))
             E = decayEligibility 1.0
             γλE = decayEligibility (γ*λ)
-            oldv' = _value . next result
+            oldv' = _value . next nowActorStatesWithSum
             update = \as ->
                 if (_state as == s && _action as == a) then
                     
                                 ActorState { state=s
                                            , action=a
-                                           , probability=(euler**(preference as + α*cErr*E)/(sum result))
+                                           , probability=(euler**(preference as + α*cErr*E)/(sum nowActorStatesWithSum))
                                            , preference=(preference as + α*cErr*E)
                                            , eligibility=γλE
                                            , value=(value as + α*(err + Δ)*E - α*Δ)
@@ -60,8 +63,12 @@ module Actor where
                                            , value=(value as + α*(err + Δ)*(eligibility as))
                                            }
 
-    actorPolicy :: ([ActorState], Double) -> Action
-    actorPolicy t = 
-        where 
-            ep = eulerPref as
-            ps = map (\as -> ep/(snd t - ep)) (fst t)
+    actorPolicy :: Random.StdGen -> State -> ActorState
+    actorPolicy g s = NPRandom.runSeed g (NPRandom.pick (Dist.relative ps as))
+        where
+            (nowAS, sum) = filterByState ass s
+            probAction = \as -> (ep/(sum - ep), _action as)
+                               where ep = eulerPref as
+            appendProbAction = \pas -> \as -> (p:(fst pas), a:(snd pas))
+                                            where (p, a) = probAction as
+            (ps, as) = foldl appendProbAction ([], []) nowAS
