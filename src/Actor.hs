@@ -1,7 +1,7 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Actor where
 
-    import TicTacToe (playerStates)
+    import TicTacToe (playerStates, allReactionsByMove, allMoves)
     import Control.Lens
 
     type Action = Square
@@ -13,13 +13,7 @@ module Actor where
                        , _value :: Double
                        } deriving (Show)
     makeLenses ''ActorState
-    data Result = Result { _now :: ActorState
-                         , _nowOthers :: [ActorState]
-                         , _next :: ActorState
-                         , _nowSum :: Double
-                         } deriving (Show)
-    makeLenses ''Result
-    
+
     euler :: Double
     euler = 2.71828
 
@@ -27,32 +21,28 @@ module Actor where
     initAS s a = ActorState {_state=s, _action=a, _preference=0.0, _eligibility=0.0, _value=0.0}
 
     initASs :: Player -> [ActorState]
-    initASs p = map (\s -> map (\a -> initAS s a) (possibleMoves s)) (playerStates p)
+    initASs p = map (\s -> map (\a -> initAS s a) (allMoves s)) (playerStates p)
 
-    nowNextActorState :: [ActorState] -> ((State, Action), (State, Action)) -> Result
-    nowNextActorState ass ((s,a), (s',a')) =
-        foldl (\result -> \as -> 
-                                if (_state as == s && (_action as == a)) then 
-                                    set now as result
-                                else if (_state as == s && (_action as /= a)) then
-                                    (over nowOthers (as:)) . (over nowSum (+ euler**(_preference as)) result
-                                else if (_state as == s' && (_action as == a')) then 
-                                    set next as result
-              ) (Result {_now=(initAS s a), _nowOthers=[], _next=(initAS s' a'), _nowSum=0.0}) ass
+    eulerPref :: ActorState -> Double
+    eulerPref as = euler**(_preference as)
+
+    filterByState :: [ActorState] -> State -> ([ActorState], Double)
+    filterByState ass s = foldl (\t -> \as -> if (_state as == s) then (as:(fst t), (snd t + eulerPref as)) else t) ([], 0.0) ass
 
     -- True online Sarsa(λ), with eligibility traces and with a policy using a gradient ascent distribution (Gibbs distribution)
-    actorEvaluate :: [ActorState] -> (State, Action) -> (State, Action) -> Reward -> Double -> Double -> [ActorState]
-    actorEvaluate ass (s,a) (s',a') oldV cErr = 
+    actorControl :: Player -> [ActorState] -> State -> Double -> Double -> [ActorState]
+    actorControl p ass s oldV cErr = 
         where
-            result = nowNextActorState ass ((s,a), (s',a'))
-            err = r + γ*(value . next result) - (value . now result))
-            Δ = value . now result - oldv
-            decayEligibility = \gl -> gl*(eligibility . now result) + 1.0 - (probability . now result))
+            result = filterByState ass s
+            
+            err = r + γ*(_value . next result) - (_value . now result))
+            Δ = _value . now result - oldv
+            decayEligibility = \gl -> gl*(_eligibility . now result) + 1.0 - (_probability . now result))
             E = decayEligibility 1.0
             γλE = decayEligibility (γ*λ)
-            oldv' = value . next result
+            oldv' = _value . next result
             update = \as ->
-                if state as == s then
+                if (_state as == s && _action as == a) then
                     
                                 ActorState { state=s
                                            , action=a
@@ -70,5 +60,8 @@ module Actor where
                                            , value=(value as + α*(err + Δ)*(eligibility as))
                                            }
 
-    actorPolicy :: [ActorState] -> (State, Action) -> (State, Action)
-    actorPolicy ass (s,a) = 
+    actorPolicy :: ([ActorState], Double) -> Action
+    actorPolicy t = 
+        where 
+            ep = eulerPref as
+            ps = map (\as -> ep/(snd t - ep)) (fst t)

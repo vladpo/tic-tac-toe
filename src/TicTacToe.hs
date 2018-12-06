@@ -1,11 +1,11 @@
 module TicTacToe where
     
-    data Square = Square Int Int deriving (Show, Eq)
+    data Move = Move Int Int deriving (Show, Eq)
     data XO = E | X | O deriving (Eq)
     data Player = P1 | P2 deriving (Eq)
     type Row = [XO]
     type Board = [Row]
-    type Moves = [Square]
+    type Moves = [Move]
     type States = [Board]
     
     instance Show XO where
@@ -43,17 +43,17 @@ module TicTacToe where
         if s2 /= E then ([s0, s1, s2], p) else ([s0, s1, sign(p)], nextPlayer(p))
     setSquare r _ p = (r, p)
     
-    move :: Board -> Square -> Player -> (Board, Player)
-    move [r0, r1, r2] (Square 0 y) p = 
+    move :: Board -> Player -> Move -> (Board, Player)
+    move [r0, r1, r2] p (Move 0 y)= 
         ([nr, r1, r2], np)
         where (nr, np) = setSquare r0 y p                            
-    move [r0, r1, r2] (Square 1 y) p =
+    move [r0, r1, r2] p (Move 1 y) =
         ([r0, nr, r2], np)
         where (nr, np) = setSquare r1 y p
-    move [r0, r1, r2] (Square 2 y) p =
+    move [r0, r1, r2] p (Move 2 y)=
         ([r0, r1, nr], np)
         where (nr, np) = setSquare r2 y p
-    move b sq p = (b, p)
+    move b p sq= (b, p)
 
     isRowWin :: Board -> Player -> Bool
     isRowWin b p = any (\r -> r!!0 == sign(p) && r!!0 == r!!1 && r!!1 == r!!2) b
@@ -96,8 +96,17 @@ module TicTacToe where
     playerStates :: Player -> States
     playerStates ai = filter (\b -> notWin b P1 && notWin b P2 && (isPlayerMove b ai)) allStates
 
-    possibleRowMoves :: Moves -> (Int, Row) -> Moves
-    possibleRowMoves ss (i, r) = (foldl (\ss' -> \t -> if snd t == E then (Square i (fst t)):ss' else ss') ss (zip [0..2] r))
+    allRowMoves :: Moves -> (Int, Row) -> Moves
+    allRowMoves ss (i, r) = (foldl (\ss' -> \t -> if snd t == E then (Move i (fst t)):ss' else ss') ss (zip [0..2] r))
 
-    possibleMoves :: Board -> Moves
-    possibleMoves b = foldl possibleRowMoves [] (zip [0..2] b)
+    allMoves :: Board -> Moves
+    allMoves b = foldl allRowMoves [] (zip [0..2] b)
+
+    allNextBoardsByMove :: Player -> Board -> [(Move, Board)]
+    allNextBoardsByMove p b = map (\m -> (m, fst (move b p m)) (allMoves b)
+
+    allNextBoards :: Player -> Board -> [Board]
+    allNextBoards p b = map (fst . (move b p)) (allMoves b)
+
+    allReactionsByMove :: Player -> Board -> [(Move, [Board])]
+    allReactionsByMove p b = foldl (\bs -> \t -> (fst t, allNextBoards (nextPlayer p) (snd t))++bs) [] (allNextBoardsByMove p b)
