@@ -23,6 +23,8 @@ dependencies:
 - base >= 4.7 && < 5
 - strings >= 1.1
 - lens >= 4.17
+- probability >= 0.2.5.2
+- random >= 1.1
 
 library:
   source-dirs: src

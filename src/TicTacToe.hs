@@ -70,6 +70,19 @@ module TicTacToe where
     notWin :: Board -> Player -> Bool
     notWin b p = not(isWin b p)
 
+    notFinished :: Board -> Bool
+    notFinished [r0 r1 r2] = any (== E) r0 || (any (== E) r1) || (any (== E) r2)
+
+    isDraw :: Board -> Bool
+    isDraw b = x == 5 && o == 4
+        where (x, o) = countDoneMoves b
+
+    incMove :: (Int, Int) -> XO -> (Int, Int)
+    incMove (x, o) xo = 
+        if xo == X then (x + 1, o)
+        else if xo == O then (x, o + 1)
+        else (x, o)
+
     countRowMoves :: Row -> (Int, Int)
     countRowMoves r = foldl incMove (0, 0) r
 

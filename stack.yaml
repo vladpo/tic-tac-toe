@@ -40,6 +40,8 @@ packages:
 extra-deps:
 - strings-1.1
 - lens-4.17
+- probability-0.2.5.2
+- random-1.1
 
 # Override default flag values for local packages and extra-deps
 # flags: {}

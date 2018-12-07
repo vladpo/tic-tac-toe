@@ -6,6 +6,8 @@ module Main where
     import Text.Read (readMaybe)
     import System.IO
     import Data.List (find)
+    import Critic (SEV)
+    import Actor (actorControl, ActorState, State)
     
     strSquare :: (String, String) -> Either String Square
     strSquare (x, y) =
@@ -99,6 +101,7 @@ module Main where
             printBoard nb
             play nb np
 
-    main = mapM printBoard (aiNonTerminalStates P2)
+    --main = mapM printBoard (aiNonTerminalStates P2)
     --main = print(length(aiNonTerminalStates P1))
     --main = print (possibleMoves [[X,X,O],[E,E,E],[E,E,E]])
+    main = 

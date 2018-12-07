@@ -34,8 +34,8 @@ module Critic where
                                ) (initSev s, initSev s') sevs
         
     -- True online TD(λ) with eligibility dutch-traces
-    criticEvaluate :: [SEV] -> State -> State -> Reward -> Double -> Maybe ([SEV], Double)
-    criticEvaluate sevs s s' r oldv = (map update sevs, err)
+    criticEvaluate :: [SEV] -> State -> State -> Reward -> Double -> ([SEV], Double, Double)
+    criticEvaluate sevs s s' r oldv = (map update sevs, oldV', err)
         where 
             nowNext = nowNextSev sevs s s'
             err = r + γ*(_value . snd nowNext) - (_value . fst nowNext)

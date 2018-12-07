@@ -1,7 +1,8 @@
 {-# LANGUAGE TemplateHaskell #-}
 module Actor where
 
-    import TicTacToe (playerStates, allReactionsByMove, allMoves)
+    import TicTacToe (playerStates, allReactionsByMove, allMoves, move, isWin, notFinished, isDraw)
+    import Critic (criticEvaluate, SEV)
     import Control.Lens
     import Numeric.Probability.Random as NPRandom
     import Numeric.Probability.Distribution as Dist
@@ -18,6 +19,9 @@ module Actor where
                        } deriving (Show)
     makeLenses ''ActorState
 
+    instance Eq ActorState where
+         x == y = _state x == _state y && _action x == _action y
+
     euler :: Double
     euler = 2.71828
 
@@ -33,40 +37,68 @@ module Actor where
     filterByState :: [ActorState] -> State -> ([ActorState], Double)
     filterByState ass s = foldl (\t -> \as -> if (_state as == s) then (as:(fst t), (snd t + eulerPref as)) else t) ([], 0.0) ass
 
-    actorPolicy :: Random.StdGen -> State -> ActorState
-    actorPolicy g s = NPRandom.runSeed g (NPRandom.pick (Dist.relative ps as))
+    actorPolicy :: Random.StdGen -> State -> [ActorState] -> ActorState
+    actorPolicy g s ass = NPRandom.runSeed g (NPRandom.pick (Dist.relative probs ass'))
         where
-            (nowAS, sum) = filterByState ass s
-            probAction = \as -> (ep/(sum - ep), _action as)
-                               where ep = eulerPref as
-            appendProbAction = \pas -> \as -> (p:(fst pas), a:(snd pas))
-                                            where (p, a) = probAction as
-            (ps, as) = foldl appendProbAction ([], []) nowAS
+            (nowASs, sum) = filterByState ass s
+            setProbActorState = \as -> set probability (ep/(sum - ep)) as
+                                    where ep = eulerPref as
+            appendProbsActorStates = \pas -> \as -> ((_probability as'):(fst pas), as':(snd pas))
+                                                 where as' = setProbActorState as
+            (probs, ass') = foldl appendProbsActorStates ([], []) nowASs
 
-    -- True online Sarsa(λ), with eligibility traces and with a policy using a gradient ascent distribution (Gibbs distribution)
-    actorEvaluation :: [ActorState] -> ActorState -> ActorState -> Double -> Double -> [ActorState]
-    actorEvaluation ass s s' oldV cErr = 
+    actorEvaluation :: [ActorState] -> ActorState -> ActorState -> Double -> Double -> Double -> ([ActorState], Double)
+    actorEvaluation ass s s' r oldV cErr = (map update ass, oldV')
         where
             err = r + γ*(_value s') - (_value s)
             Δ = _value s - oldv
             decayEligibility = \γλ -> γλ*(_eligibility s) + 1.0 - (_probability s)
             E = decayEligibility 1.0
             γλE = decayEligibility (γ*λ)
-            oldv' = _value . s'
+            oldV' = _value . s'
             update = \as ->
-                if (_state as == _state s && _action as == _action s) then
-                                ActorState { state=s
-                                           , action=a
-                                           , probability=(euler**(_preference as + α*cErr*E)/(sum nowActorStatesWithSum))
-                                           , preference=(preference as + α*cErr*E)
-                                           , eligibility=γλE
-                                           , value=(value as + α*(err + Δ)*E - α*Δ)
-                                           }
-                            else
-                                ActorState { state=(state as)
-                                           , action=(action as)
-                                           , probability=(probability as)
-                                           , preference=(preference as)
-                                           , eligibility=(γ*λ*(eligibility as))
-                                           , value=(value as + α*(err + Δ)*(eligibility as))
-                                           }
+                if (as == s) then (over preference (+ α*cErr*E)) . (set eligibility γλE) . (over value (+ α*(err + Δ)*E - α*Δ)) as
+                else (over eligibility (γ*λ*)) . (over value (+ α*(err + Δ)*(_eligibility as))) as
+
+    moveAS :: ActorState -> Player -> State
+    moveAS as p = fst (move (_state as) p (_action as))
+
+    reward :: State -> Player -> Double
+    reward s p = if (notFinished s || isDraw s) 0.0 else if (isWin s p) then 1.0 else -1.0
+
+    data Result = Result { actorState :: [ActorState]
+                         , sevs :: [SEV]
+                         , aOldV :: Double
+                         , cOldV :: Double
+                         }
+
+    startAgain :: State -> State
+    startAgain s 
+    -- True online Sarsa(λ), with eligibility traces and with a policy using a gradient ascent distribution (Gibbs distribution)
+    actorControl :: Int -> Int -> Int -> Random.StdGen -> State -> [ActorState] -> [SEV] -> Double -> [ActorState] -> [SEV] -> Double -> Result
+    actorControl i tr otr g s ass sevs aOldV cOldV oass osevs oaOldV ocOldV = 
+            if i mod 100 == 0 then
+                if tr > otr then
+                    actorControl (i + 1) (tr + r) (otr + or) g (startAgain os') ass' sevs' aOldV' cOldV' ass' sevs' aOldV' cOldV'
+                else
+                    actorControl (i + 1) (tr + r) (otr + or) g (startAgain os') osevs' oaOldV' ocOldV' osevs' oaOldV' ocOldV'
+            else if i < 399 then 
+                actorControl (i + 1) (tr + r) (otr + or) g (startAgain os') ass' sevs' aOldV' cOldV' oass' osevs' oaOldV' ocOldV'    
+            else
+                if tr > otr then
+                    Result { actorState=ass', sevs=sevs', aOldV', cOldV'}
+                else
+                    Result { actorState=oass', sevs=osevs', oaOldV', ocOldV'}
+        where 
+            as = actorPolicy g s ass
+            s' = moveAS as P1
+            r = reward s' P1
+            oas = if isDraw s' || (isWin s' p) then else actorPolicy g s' oass
+            os' = moveAS oas P2
+            or = reward os' P2
+            as' = actorPolicy g os' ass
+            oas' = actorPolicy g (moveAS as' P1) oass
+            (sevs', cOldV', cErr) = criticEvaluate sevs (_state as) (_state as') r cOldV
+            (ass', aOldV') = actorEvaluation ass as as' r aOldV cErr
+            (osevs', ocOldV', ocErr) = criticEvaluate sevs' (_state oas) (_state oas') or ocOldV
+            (oass', oaOldV') = actorEvaluation oass oas oas' or oaOldV ocErr
