@@ -72,6 +72,10 @@ module Actor where
                          , cOldV :: Double
                          }
 
+    newtype Actor = Cons {decons :: ([ActorState], Double)}
+    
+    newtype ActorControl = AC {actorControl :: (CriticEvaluate, ActorEvaluate)}
+
     startAgain :: State -> State
     startAgain s 
     -- True online Sarsa(λ), with eligibility traces and with a policy using a gradient ascent distribution (Gibbs distribution)
@@ -89,7 +93,7 @@ module Actor where
                     Result { actorState=ass', sevs=sevs', aOldV', cOldV'}
                 else
                     Result { actorState=oass', sevs=osevs', oaOldV', ocOldV'}
-        where 
+        where
             as = actorPolicy g s ass
             s' = moveAS as P1
             r = reward s' P1
