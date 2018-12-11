@@ -10,6 +10,7 @@ module Actor where
     import System.Random (Random, )
 
     type Action = Square
+    type Err = Double
     data ActorState = ActorState { _state :: State
                        , _action :: Action
                        , _probability :: Double
@@ -21,6 +22,24 @@ module Actor where
 
     instance Eq ActorState where
          x == y = _state x == _state y && _action x == _action y
+
+    type Actor = ([ActorState], Double)
+
+    actorEvaluate :: (Board, Board) -> Double -> Reward -> State Actor ()
+    actorEvaluate (s, s') r
+        = do (ass, oldV) <- get
+             put (update <$> ass, oldV')
+                where
+                    err = r + γ*(_value s') - (_value s)
+                    Δ = _value s - oldV
+                    decayEligibility = \γλ -> γλ*(_eligibility s) + 1.0 - (_probability s)
+                    E = decayEligibility 1.0
+                    γλE = decayEligibility (γ*λ)
+                    oldV' = _value . s'
+                    update :: ActorState -> ActorState
+                    update as =
+                        if (as == s) then (over preference (+ α*cErr*E)) . (set eligibility γλE) . (over value (+ α*(err + Δ)*E - α*Δ)) as
+                        else (over eligibility (γ*λ*)) . (over value (+ α*(err + Δ)*(_eligibility as))) as
 
     euler :: Double
     euler = 2.71828
@@ -34,18 +53,18 @@ module Actor where
     eulerPref :: ActorState -> Double
     eulerPref as = euler**(_preference as)
 
-    filterByState :: [ActorState] -> State -> ([ActorState], Double)
+    filterByState :: [ActorState] -> Board -> ([ActorState], Double)
     filterByState ass s = foldl (\t -> \as -> if (_state as == s) then (as:(fst t), (snd t + eulerPref as)) else t) ([], 0.0) ass
 
-    actorPolicy :: Random.StdGen -> State -> [ActorState] -> ActorState
-    actorPolicy g s ass = NPRandom.runSeed g (NPRandom.pick (Dist.relative probs ass'))
-        where
-            (nowASs, sum) = filterByState ass s
-            setProbActorState = \as -> set probability (ep/(sum - ep)) as
-                                    where ep = eulerPref as
-            appendProbsActorStates = \pas -> \as -> ((_probability as'):(fst pas), as':(snd pas))
-                                                 where as' = setProbActorState as
-            (probs, ass') = foldl appendProbsActorStates ([], []) nowASs
+    actorPolicy :: Random.StdGen -> Board -> State Actor ActorState
+    actorPolicy g s
+        = do (ass, _) <- get
+             return $ NPRandom.runSeed g $ NPRandom.pick $ Dist.relative probs ass'
+                where
+                    (nowASs, sum) = filterByState ass s
+                    setProbActorState = \as -> let ep = eulerPref as in set probability (ep/(sum - ep)) as
+                    appendProbsActorStates = \pas -> \as -> let as' = setProbActorState as in ((_probability as'):(fst pas), as':(snd pas))
+                    (probs, ass') = foldl appendProbsActorStates ([], []) nowASs
 
     actorEvaluation :: [ActorState] -> ActorState -> ActorState -> Double -> Double -> Double -> ([ActorState], Double)
     actorEvaluation ass s s' r oldV cErr = (map update ass, oldV')
