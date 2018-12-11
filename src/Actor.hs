@@ -66,19 +66,6 @@ module Actor where
                     appendProbsActorStates = \pas -> \as -> let as' = setProbActorState as in ((_probability as'):(fst pas), as':(snd pas))
                     (probs, ass') = foldl appendProbsActorStates ([], []) nowASs
 
-    actorEvaluation :: [ActorState] -> ActorState -> ActorState -> Double -> Double -> Double -> ([ActorState], Double)
-    actorEvaluation ass s s' r oldV cErr = (map update ass, oldV')
-        where
-            err = r + γ*(_value s') - (_value s)
-            Δ = _value s - oldv
-            decayEligibility = \γλ -> γλ*(_eligibility s) + 1.0 - (_probability s)
-            E = decayEligibility 1.0
-            γλE = decayEligibility (γ*λ)
-            oldV' = _value . s'
-            update = \as ->
-                if (as == s) then (over preference (+ α*cErr*E)) . (set eligibility γλE) . (over value (+ α*(err + Δ)*E - α*Δ)) as
-                else (over eligibility (γ*λ*)) . (over value (+ α*(err + Δ)*(_eligibility as))) as
-
     moveAS :: ActorState -> Player -> State
     moveAS as p = fst (move (_state as) p (_action as))
 
@@ -90,13 +77,21 @@ module Actor where
                          , aOldV :: Double
                          , cOldV :: Double
                          }
-
-    newtype Actor = Cons {decons :: ([ActorState], Double)}
     
-    newtype ActorControl = AC {actorControl :: (CriticEvaluate, ActorEvaluate)}
+    type ActorCritic = (Actor, Critic)
 
-    startAgain :: State -> State
-    startAgain s 
+    learn :: Random.StdGen -> Board -> State (ActorCritic, ActorCritic) ()
+    learn g s = do
+        (a1,c1)
+        as <- actorPolicy g s
+        s' <- return $ moveAS as P1
+        r <- return $ reward s' P1
+        (actor, critic) <- get
+             
+        where
+            (s, s', r) = 
+            criticEvaluate (s,s') r 
+
     -- True online Sarsa(λ), with eligibility traces and with a policy using a gradient ascent distribution (Gibbs distribution)
     actorControl :: Int -> Int -> Int -> Random.StdGen -> State -> [ActorState] -> [SEV] -> Double -> [ActorState] -> [SEV] -> Double -> Result
     actorControl i tr otr g s ass sevs aOldV cOldV oass osevs oaOldV ocOldV = 
