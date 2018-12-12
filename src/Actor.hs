@@ -11,9 +11,9 @@ module Actor where
 
     type Action = Square
     type Err = Double
+    type Probability = Double
     data ActorState = ActorState { _state :: State
                        , _action :: Action
-                       , _probability :: Double
                        , _preference :: Double
                        , _eligibility :: Double
                        , _value :: Double
@@ -26,20 +26,50 @@ module Actor where
     type Actor = ([ActorState], Double)
 
     actorEvaluate :: (Board, Board) -> Double -> Reward -> State Actor ()
-    actorEvaluate (s, s') r
-        = do (ass, oldV) <- get
-             put (update <$> ass, oldV')
-                where
-                    err = r + γ*(_value s') - (_value s)
-                    Δ = _value s - oldV
-                    decayEligibility = \γλ -> γλ*(_eligibility s) + 1.0 - (_probability s)
-                    E = decayEligibility 1.0
-                    γλE = decayEligibility (γ*λ)
-                    oldV' = _value . s'
-                    update :: ActorState -> ActorState
-                    update as =
-                        if (as == s) then (over preference (+ α*cErr*E)) . (set eligibility γλE) . (over value (+ α*(err + Δ)*E - α*Δ)) as
-                        else (over eligibility (γ*λ*)) . (over value (+ α*(err + Δ)*(_eligibility as))) as
+    actorEvaluate ss' cErr r = modify $ actorUpdate ss' cErr r
+
+    actorUpdate :: (ActorState, ActorState) -> Double -> Reward -> Actor -> Actor
+    actorUpdate (s, s') cErr r = over _1 $ map update . set _2 oldV'
+        where
+            err = r + γ*(_value s') - (_value s)
+            Δ = _value s - oldV
+            decayEligibility = \γλ -> γλ*(_eligibility s) + 1.0 - (_probability s)
+            E = decayEligibility 1.0
+            γλE = decayEligibility (γ*λ)
+            oldV' = _value . s'
+            update :: ActorState -> ActorState
+            update as =
+                if (as == s) then (over preference (+ α*cErr*E)) . (set eligibility γλE) . (over value (+ α*(err + Δ)*E - α*Δ)) as
+                else (over eligibility (γ*λ*)) . (over value (+ α*(err + Δ)*(_eligibility as))) as
+
+    actorPolicy :: Random.StdGen -> Board -> State Actor (ActorState, Probability)
+    actorPolicy g s = gets $ pickRandom . fst
+        where
+          filterByState :: [ActorState] -> [ActorState]
+          filterByState = filter $ (== s) . _state
+          nowWithProbabilities :: [ActorState] -> ([ActorState], [Probability])
+          nowWithProbabilities ass = (nowAS, map (\as -> map $ eulerPref as / sum $ map eulerPref $ filter (/=as) ass ass ass) nowAS)
+              where nowAS = filterByState s ass
+          pickRandom :: [ActorState] -> (ActorState, Probability)
+          pickRandom ass = (ras, dist ?? just (==ras))
+              where
+                  dist = uncurry Dist.relative nowWithProbabilities ass
+                  ras = NPRandom.runSeed g $ NPRandom.pick dist
+
+    type ActorCritic = (Actor, Critic)
+
+    learn :: Random.StdGen -> Board -> State (ActorCritic, ActorCritic) ()
+    learn g s = modify $ over _1 act . over _2 act
+        act :: ActorCritic -> 
+        (a1,c1)
+        as <- actorPolicy g s
+        s' <- return $ moveAS as P1
+        r <- return $ reward s' P1
+        (actor, critic) <- get
+
+        where
+            (s, s', r) =
+            criticEvaluate (s,s') r
 
     euler :: Double
     euler = 2.71828
@@ -53,19 +83,6 @@ module Actor where
     eulerPref :: ActorState -> Double
     eulerPref as = euler**(_preference as)
 
-    filterByState :: [ActorState] -> Board -> ([ActorState], Double)
-    filterByState ass s = foldl (\t -> \as -> if (_state as == s) then (as:(fst t), (snd t + eulerPref as)) else t) ([], 0.0) ass
-
-    actorPolicy :: Random.StdGen -> Board -> State Actor ActorState
-    actorPolicy g s
-        = do (ass, _) <- get
-             return $ NPRandom.runSeed g $ NPRandom.pick $ Dist.relative probs ass'
-                where
-                    (nowASs, sum) = filterByState ass s
-                    setProbActorState = \as -> let ep = eulerPref as in set probability (ep/(sum - ep)) as
-                    appendProbsActorStates = \pas -> \as -> let as' = setProbActorState as in ((_probability as'):(fst pas), as':(snd pas))
-                    (probs, ass') = foldl appendProbsActorStates ([], []) nowASs
-
     moveAS :: ActorState -> Player -> State
     moveAS as p = fst (move (_state as) p (_action as))
 
@@ -77,31 +94,17 @@ module Actor where
                          , aOldV :: Double
                          , cOldV :: Double
                          }
-    
-    type ActorCritic = (Actor, Critic)
-
-    learn :: Random.StdGen -> Board -> State (ActorCritic, ActorCritic) ()
-    learn g s = do
-        (a1,c1)
-        as <- actorPolicy g s
-        s' <- return $ moveAS as P1
-        r <- return $ reward s' P1
-        (actor, critic) <- get
-             
-        where
-            (s, s', r) = 
-            criticEvaluate (s,s') r 
 
     -- True online Sarsa(λ), with eligibility traces and with a policy using a gradient ascent distribution (Gibbs distribution)
     actorControl :: Int -> Int -> Int -> Random.StdGen -> State -> [ActorState] -> [SEV] -> Double -> [ActorState] -> [SEV] -> Double -> Result
-    actorControl i tr otr g s ass sevs aOldV cOldV oass osevs oaOldV ocOldV = 
+    actorControl i tr otr g s ass sevs aOldV cOldV oass osevs oaOldV ocOldV =
             if i mod 100 == 0 then
                 if tr > otr then
                     actorControl (i + 1) (tr + r) (otr + or) g (startAgain os') ass' sevs' aOldV' cOldV' ass' sevs' aOldV' cOldV'
                 else
                     actorControl (i + 1) (tr + r) (otr + or) g (startAgain os') osevs' oaOldV' ocOldV' osevs' oaOldV' ocOldV'
-            else if i < 399 then 
-                actorControl (i + 1) (tr + r) (otr + or) g (startAgain os') ass' sevs' aOldV' cOldV' oass' osevs' oaOldV' ocOldV'    
+            else if i < 399 then
+                actorControl (i + 1) (tr + r) (otr + or) g (startAgain os') ass' sevs' aOldV' cOldV' oass' osevs' oaOldV' ocOldV'
             else
                 if tr > otr then
                     Result { actorState=ass', sevs=sevs', aOldV', cOldV'}

@@ -23,14 +23,10 @@ module Critic where
 
     -- True online TD(λ) with eligibility dutch-traces
     criticEvaluate :: (Board, Board) -> Reward -> State Critic Err
-    criticEvaluate ss' r
-        = do c <- get
-             (c', err) <- return $ criticUpdate ss' c r
-             put c'
-             return err
-
-    criticUpdate :: (Board, Board) -> Critic -> Reward -> (Critic, Err)
-    criticUpdate ss' (sevs, oldV) r = ((map update sevs, oldV'), err)
+    criticEvaluate ss' r = state $ criticUpdate ss' r
+        
+    criticUpdate :: (Board, Board) -> Reward -> Critic -> (Critic, Err)
+    criticUpdate ss' r (sevs, oldV) = ((map update sevs, oldV'), err)
         where 
             (now, next) = nowNextSev sevs ss'
             err = r + γ*(_value next) - (_value now)
@@ -43,16 +39,16 @@ module Critic where
                     (set eligibility (γ*λ*e)) . (over value (+ α*(err + Δ)*e - α*Δ)) sev
                 else
                     (over eligibility (γ*λ*)) . (over value (+ α*(err + Δ)*(_eligibility sev))) sev
-    
+
+    nowNextSev :: [SEV] -> (Board, Board) -> (SEV, SEV)
+    nowNextSev sevs (s, s')= foldl $ \nowNext sev -> 
+                                                    if (_state sev == s) then (sev, snd nowNext)
+                                                    else if (_state sev == s') then (fst nowNext, sev)
+                                                    else nowNext
+                                        (initSev s, initSev s') sevs
+
     initSev :: State -> SEV
     initSev s = SEV {state=s, eligibility=0.0, value=0.0}
 
     initSevs :: Player -> [SEV]
     initSevs p = map initSev (aiNonTerminalStates p)
-
-    nowNextSev :: [SEV] -> (Board, Board) -> (SEV, SEV)
-    nowNextSev sevs (s, s')= foldl(\nowNext -> \sev -> 
-                                                    if (_state sev == s) then (sev, snd nowNext)
-                                                    else if (_state sev == s') then (fst nowNext, sev)
-                                                    else nowNext
-                                ) (initSev s, initSev s') sevs
