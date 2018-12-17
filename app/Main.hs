@@ -6,74 +6,85 @@ module Main where
     import Text.Read (readMaybe)
     import System.IO
     import Data.List (find)
-    import Critic (SEV)
-    import Actor (actorControl, ActorState, State)
+    import TicTacToe ( Move
+                     , Move (M)
+                     , Player
+                     , Board
+                     , XO
+                     , XO (O)
+                     , XO (X)
+                     , XO (E)
+                     , Row
+                     , nextPlayer
+                     , isWin
+                     , move
+                     )
     
-    strSquare :: (String, String) -> Either String Square
-    strSquare (x, y) =
-        case readMaybe x >>= (\x' -> fmap (\y' -> Square x' y') (readMaybe y)) of
+    strMove :: (String, String) -> Either String Move
+    strMove (x, y) =
+        case readMaybe x >>= (\x' -> fmap (\y' -> M x' y') (readMaybe y)) of
             Just p -> Right p
             Nothing -> Left "You need to provide valid row/column indexes."
     
-    parseSquare :: String -> Either String Square
-    parseSquare s = strSquare (strSplit " " s)
+    parseMove :: String -> Either String Move
+    parseMove s = strMove (strSplit " " s)
     
-    validate :: Either String Square -> Either String Square
-    validate (Right (Square x y)) =
+    validate :: Either String Move -> Either String Move
+    validate (Right (M x y)) =
         if x >= 0 && x <= 2 && y >= 0 && y <= 2 then
-            Right (Square x y)
+            Right (M x y)
         else
             Left "Your row/column values should be between 0 and 2."
     validate e = e
     
-    readSquare :: String -> IO (Either String Square)
-    readSquare msg = do
+    readMove :: String -> IO (Either String Move)
+    readMove msg = do
         putStrLn(msg)
         p <- getLine
-        return (validate (parseSquare p))
+        return (validate (parseMove p))
     
-    loopAskSquareMsg :: Either String Square -> IO Square
-    loopAskSquareMsg (Left e) = do
-        esp <- readSquare (e ++ " Let's try again:")
-        loopAskSquareMsg esp
-    loopAskSquareMsg (Right p) =
+    loopAskMoveMsg :: Either String Move -> IO Move
+    loopAskMoveMsg (Left e) = do
+        esp <- readMove (e ++ " Let's try again:")
+        loopAskMoveMsg esp
+    loopAskMoveMsg (Right p) =
         return p
     
-    playerSquareMsg :: Player -> String
-    playerSquareMsg p = show p ++ " pick a row column index between 0 an 2"
+    playerMoveMsg :: Player -> String
+    playerMoveMsg p = show p ++ " pick a row column index between 0 an 2"
     
-    loopMove :: Board -> Square -> Player -> IO (Board, Player)
-    loopMove b sq p =
+    loopMove :: Board -> Move -> Player -> IO (Board, Player)
+    loopMove b m p =
         if p /= np then
             return (nb, np)
         else do
             putStrLn "Choose a different square."
-            esp <- readSquare (playerSquareMsg p)
-            nsq <- loopAskSquareMsg esp
+            esp <- readMove (playerMoveMsg p)
+            nsq <- loopAskMoveMsg esp
             loopMove b nsq p
-        where (nb, np) = move b sq p
+        where (nb, np) = move b p m
     
     putSpace :: IO()
     putSpace = putChar ' '
     
-    printSquare :: XO -> IO()
-    printSquare E = putSpace
-    printSquare X = putChar 'x'
-    printSquare O = putChar 'o'
+    printMove :: XO -> IO()
+    printMove E = putSpace
+    printMove X = putChar 'x'
+    printMove O = putChar 'o'
         
-    printSpacedSquare :: XO -> IO()
-    printSpacedSquare s = do
+    printSpacedMove :: XO -> IO()
+    printSpacedMove s = do
         putSpace
-        printSquare s
+        printMove s
         putSpace
     
     printRow :: Row -> IO()
     printRow [s0, s1, s2] = do
-        printSpacedSquare s0
+        printSpacedMove s0
         putChar '|'
-        printSpacedSquare s1
+        printSpacedMove s1
         putChar '|'
-        printSpacedSquare s2
+        printSpacedMove s2
     
     printRowSep :: IO()
     printRowSep = do
@@ -95,13 +106,14 @@ module Main where
         if isWin b (nextPlayer p) then
             print(show (nextPlayer p) ++ " won the game. Congrats.")
         else do
-            esp <- readSquare (playerSquareMsg p)
-            sq <- loopAskSquareMsg esp
-            (nb, np) <- loopMove b sq p
+            esp <- readMove (playerMoveMsg p)
+            m <- loopAskMoveMsg esp
+            (nb, np) <- loopMove b m p
             printBoard nb
             play nb np
 
     --main = mapM printBoard (aiNonTerminalStates P2)
     --main = print(length(aiNonTerminalStates P1))
     --main = print (possibleMoves [[X,X,O],[E,E,E],[E,E,E]])
-    main = 
+    main :: IO ()
+    main = return ()
