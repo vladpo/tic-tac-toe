@@ -1,9 +1,11 @@
 {-# LANGUAGE UnicodeSyntax #-}
 module TicTacToe where
 
-data Move = M Int Int deriving (Show, Eq)
-data XO = E | X | O deriving (Eq)
-data Player = P1 | P2 deriving (Eq)
+import Debug.Trace as T (trace)
+
+data Move = M Int Int deriving (Show, Eq, Ord)
+data XO = E | X | O deriving (Eq, Ord)
+data Player = P1 | P2 deriving (Eq, Ord)
 type Row = [XO]
 type Board = [Row]
 type Moves = [Move]
@@ -48,6 +50,7 @@ setSquare [s0, s1, s2] 2 p =
 setSquare r _ p = (r, p)
 
 move :: Board -> Player -> Move -> (Board, Player)
+-- move b p m | T.trace ("Board :\n" ++ (show b) ++ "\n player: " ++ (show p) ++ "\nmove: " ++ (show m)) False = undefined
 move [r0, r1, r2] p (M 0 y)=
     ([nr, r1, r2], np)
         where (nr, np) = setSquare r0 y p
@@ -75,7 +78,9 @@ notWin :: Board -> Player -> Bool
 notWin b p = not(isWin b p)
 
 notFinished :: Board -> Bool
-notFinished [r0, r1, r2] = any (== E) r0 || (any (== E) r1) || (any (== E) r2)
+-- notFinished b | T.trace ("\n not finished : \n" ++ (show b)) False = undefined
+notFinished [r0, r1, r2] = any isE r0 || any isE r1 || any isE r2
+    where isE = (==E)
 
 isFinished :: Board -> Bool
 isFinished = not . notFinished
@@ -114,7 +119,7 @@ allStates :: States
 allStates = [b | b <- mapM (const rows) [0..2]]
 
 playerStates :: Player -> [Board]
-playerStates ai = filter (\b -> notWin b P1 && notWin b P2 && isPlayerMove b ai) allStates
+playerStates p = filter (\b -> notWin b P1 && notWin b P2 && isPlayerMove b p) allStates
 
 allRowMoves :: Moves -> (Int, Row) -> Moves
 allRowMoves ss (i, r) = foldl (\ss' t -> if snd t == E then (M i (fst t)):ss' else ss') ss $ zip [0..2] r
